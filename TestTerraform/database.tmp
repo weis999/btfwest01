@@ -1,0 +1,61 @@
+resource "azurerm_cosmosdb_account" "btf-dev-acc01" {
+  name                      = "account-${random_id.server.hex}"
+  location                  = azurerm_resource_group.btf-dev.location
+  resource_group_name       = azurerm_resource_group.btf-dev.name
+  offer_type                = "__edition__"
+  kind                      = var.kind_db["2"]
+  enable_automatic_failover = false
+  enable_free_tier          = false
+
+  consistency_policy {
+    consistency_level = var.consistency_db["3"]
+  }
+
+  capabilities {
+    name = var.capabilities_db["1"]
+  }
+
+  capabilities {
+    name = var.capabilities_db["2"]
+  }
+
+  geo_location {
+    location          = azurerm_resource_group.btf-dev.location
+    failover_priority = 0
+  }
+}
+
+resource "azurerm_cosmosdb_mongo_database" "btf-dev-db01" {
+  name                = "db-btf-dev-01"
+  resource_group_name = azurerm_cosmosdb_account.btf-dev-acc01.resource_group_name
+  account_name        = azurerm_cosmosdb_account.btf-dev-acc01.name
+  throughput          = 400
+
+  depends_on = [azurerm_cosmosdb_account.btf-dev-acc01]
+}
+
+resource "azurerm_cosmosdb_mongo_collection" "person" {
+  name                = "person"
+  resource_group_name = azurerm_cosmosdb_account.btf-dev-acc01.resource_group_name
+  account_name        = azurerm_cosmosdb_account.btf-dev-acc01.name
+  database_name       = azurerm_cosmosdb_mongo_database.btf-dev-db01.name
+
+  lifecycle {
+    ignore_changes = [index]
+  }
+
+  depends_on = [azurerm_cosmosdb_mongo_database.btf-dev-db01]
+}
+
+resource "azurerm_cosmosdb_mongo_collection" "music" {
+  name                = "music"
+  resource_group_name = azurerm_cosmosdb_account.btf-dev-acc01.resource_group_name
+  account_name        = azurerm_cosmosdb_account.btf-dev-acc01.name
+  database_name       = azurerm_cosmosdb_mongo_database.btf-dev-db01.name
+
+  lifecycle {
+    ignore_changes = [index]
+  }
+
+  depends_on = [azurerm_cosmosdb_mongo_database.btf-dev-db01]
+}

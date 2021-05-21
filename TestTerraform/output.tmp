@@ -1,0 +1,6 @@
+output "cosmosdb_connectionstrings" {
+  value     = azurerm_cosmosdb_account.btf-dev-acc01.connection_strings
+  sensitive = true
+
+  depends_on = [azurerm_cosmosdb_mongo_database.btf-dev-db01]
+}
