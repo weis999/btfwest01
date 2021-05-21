@@ -1,0 +1,24 @@
+-i https://pypi.org/simple
+aniso8601==8.0.0
+bcrypt==3.1.7
+mongoengine
+cffi==1.14.0
+click==7.1.1
+flask-bcrypt==0.7.1
+flask-jwt-extended==3.24.1
+flask-mongoengine
+flask-restful==0.3.8
+flask-wtf==0.14.3
+flask==1.1.1
+itsdangerous==1.1.0
+jinja2==2.11.1
+markupsafe==1.1.1
+pycparser==2.20
+pyjwt==1.7.1
+pymongo==3.10.1
+pytz==2019.3
+six==1.14.0
+werkzeug==1.0.0
+wtforms==2.2.1
+pytest
+pytest-cov

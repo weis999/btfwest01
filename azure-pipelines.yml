@@ -1,0 +1,354 @@
+name: $(BuildDefinitionName)_$(date:yyyyMMdd)$(rev:.r)
+ 
+# Only run against Develop
+trigger:
+  batch: true # batch changes if true (the default); start a new build for every push if false
+  branches:
+    include:
+      - develop
+
+variables:
+  - group: develop-vars
+    # environmentName: "provision-vm-example-${{ variables['Build.SourceVersion'] }}"
+
+pool:
+  # vmImage: 'vs2017-win2016'
+  vmImage: 'windows-latest'
+
+stages:
+  ###################################################
+  # Apply tffiles with Terraform
+  ###################################################
+  - stage: stage_acc_apply_btf
+    jobs:
+      - job: Apply    
+        steps:
+              - task: AzurePowerShell@3
+                displayName: 'Azure PowerShell script to get the storage key'
+                inputs:
+                  azureSubscription: '$(azureSubscription)'
+                  azurePowerShellVersion: LatestVersion
+                  ScriptType: InlineScript
+                  Inline: |
+                    $key=(Get-AzureRmStorageAccountKey -ResourceGroupName $(BackendStorageResourceGroupName) -AccountName $(BackendStorageAccountName)).Value[0]
+                    Write-Host "##vso[task.setvariable variable=BackendStorageKey]$key"
+
+              - task: replacetokens@3
+                displayName: 'Replace tokens in terraform file'
+                inputs:
+                  rootDirectory: '$(System.DefaultWorkingDirectory)/terraform'
+                  targetFiles: '**/*.tf'
+                  escapeType: none
+                  tokenPrefix: '__'
+                  tokenSuffix: '__'
+
+              - task: TerraformInstaller@0
+                displayName: 'install'
+                inputs:
+                  terraformVersion: '0.13.3'
+
+              - task: TerraformTaskV1@0
+                displayName: 'init'
+                inputs:
+                  provider: 'azurerm'
+                  command: 'init'
+                  commandOptions: '-input=false'
+                  workingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
+                  backendServiceArm:  '$(ServiceConnectionNameTerraform)'
+                  backendAzureRmResourceGroupName: '$(BackendStorageResourceGroupName)'
+                  backendAzureRmStorageAccountName: '$(BackendStorageAccountName)'
+                  backendAzureRmContainerName: '$(BackendStorageContainerName)'
+                  backendAzureRmKey: '$(BackendStorageKey)'
+
+              - task: TerraformTaskV1@0
+                displayName: 'apply'
+                inputs:
+                  provider: 'azurerm'
+                  command: 'destroy'
+                  commandOptions: '-input=false -auto-approve -lock=true'
+                  workingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
+                  environmentServiceNameAzureRM: '$(azureSubscription)'
+
+  # ###################################################
+  # # Setup resources for Terraform
+  # ###################################################
+  # - stage: stage_acc_setup_btf
+  #   jobs:
+  #   - job: Setup
+  #     continueOnError: false
+  #     steps:
+  #     - task: AzureCLI@2
+  #       displayName: 'Azure CLI script to setup resources'
+  #       inputs:
+  #         azureSubscription: '$(azureSubscription)'
+  #         scriptType: bash
+  #         scriptLocation: inlineScript
+  #         inlineScript: |
+  #           # Create resource group
+  #           az group create --location $(BackendLocation) --name $(BackendStorageResourceGroupName)
+  #           # Create storage account
+  #           az storage account create --name $(BackendStorageAccountName) --resource-group $(BackendStorageResourceGroupName) --location $(BackendLocation) --sku Standard_LRS --encryption-services blob
+  #           # Create blob container
+  #           az storage container create --name $(BackendStorageContainerName) --account-name $(BackendStorageAccountName) --auth-mode login
+  #           # Get storage account key and write to variable
+  #           keylist="az storage account keys list --resource-group $(BackendStorageResourceGroupName) --account-name $(BackendStorageAccountName) --query [0].value -o tsv"
+  #           echo "##vso[task.setvariable variable=BackendStorageKey;]$keylist"
+  #           # Create KeyVault and example of storing a key
+  #           az keyvault create --name $(BackendKeyVaultName) --resource-group $(BackendStorageResourceGroupName) --location $(BackendLocation)
+  #           az keyvault secret set --vault-name $(BackendKeyVaultName) --name $(BackendTSstateaccess) --value "$keylist"
+
+  # ###################################################
+  # # Validate and plan tffiles with Terraform
+  # ###################################################
+  # - stage: stage_acc_plan_btf
+  #   dependsOn: [stage_acc_setup_btf]
+  #   condition: succeeded('stage_acc_setup_btf')
+  #   jobs:
+  #     - job: Plan    
+  #       steps:
+  #             - task: AzurePowerShell@3
+  #               displayName: 'Azure PowerShell script to get the storage key'
+  #               inputs:
+  #                 azureSubscription: '$(azureSubscription)'
+  #                 azurePowerShellVersion: LatestVersion
+  #                 ScriptType: InlineScript
+  #                 Inline: |
+  #                   $key=(Get-AzureRmStorageAccountKey -ResourceGroupName $(BackendStorageResourceGroupName) -AccountName $(BackendStorageAccountName)).Value[0]
+  #                   Write-Host "##vso[task.setvariable variable=BackendStorageKey]$key"
+
+  #             - task: replacetokens@3
+  #               displayName: 'Replace tokens in terraform file'
+  #               inputs:
+  #                 rootDirectory: '$(System.DefaultWorkingDirectory)/terraform'
+  #                 targetFiles: '**/*.tf'
+  #                 escapeType: none
+  #                 tokenPrefix: '__'
+  #                 tokenSuffix: '__'
+
+  #             - task: TerraformInstaller@0
+  #               displayName: 'install'
+  #               inputs:
+  #                 terraformVersion: '0.13.3'
+
+  #             - task: TerraformTaskV1@0
+  #               displayName: 'init'
+  #               inputs:
+  #                 provider: 'azurerm'
+  #                 command: 'init'
+  #                 commandOptions: '-input=false'
+  #                 workingDirectory: '$(System.DefaultWorkingDirectory)/_Terraform-CI/drop/Terraform'
+  #                 workingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
+  #                 backendServiceArm:  '$(ServiceConnectionNameTerraform)'
+  #                 backendAzureRmResourceGroupName: '$(BackendStorageResourceGroupName)'
+  #                 backendAzureRmStorageAccountName: '$(BackendStorageAccountName)'
+  #                 backendAzureRmContainerName: '$(BackendStorageContainerName)'
+  #                 backendAzureRmKey: '$(BackendStorageKey)'
+
+              # - task: TerraformTaskV1@0
+              #   displayName: 'validate'
+              #   inputs:
+              #     provider: 'azurerm'
+              #     command: 'validate'
+
+  #             - task: TerraformTaskV1@0
+  #               displayName: 'plan'
+  #               inputs:
+  #                 provider: 'azurerm'
+  #                 command: 'plan'
+  #                 commandOptions: '-input=false -lock=true'
+  #                 workingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
+  #                 environmentServiceNameAzureRM: '$(azureSubscription)'
+ 
+  # ###################################################
+  # # Apply tffiles with Terraform
+  # ###################################################
+  # - stage: stage_acc_apply_btf
+  #   dependsOn: [stage_acc_plan_btf]
+  #   condition: succeeded('stage_acc_plan_btf')
+  #   jobs:
+  #     - job: Apply    
+  #       steps:
+  #             - task: AzurePowerShell@3
+  #               displayName: 'Azure PowerShell script to get the storage key'
+  #               inputs:
+  #                 azureSubscription: '$(azureSubscription)'
+  #                 azurePowerShellVersion: LatestVersion
+  #                 ScriptType: InlineScript
+  #                 Inline: |
+  #                   $key=(Get-AzureRmStorageAccountKey -ResourceGroupName $(BackendStorageResourceGroupName) -AccountName $(BackendStorageAccountName)).Value[0]
+  #                   Write-Host "##vso[task.setvariable variable=BackendStorageKey]$key"
+
+  #             - task: replacetokens@3
+  #               displayName: 'Replace tokens in terraform file'
+  #               inputs:
+  #                 rootDirectory: '$(System.DefaultWorkingDirectory)/terraform'
+  #                 targetFiles: '**/*.tf'
+  #                 escapeType: none
+  #                 tokenPrefix: '__'
+  #                 tokenSuffix: '__'
+
+  #             - task: TerraformInstaller@0
+  #               displayName: 'install'
+  #               inputs:
+  #                 terraformVersion: '0.13.3'
+
+  #             - task: TerraformTaskV1@0
+  #               displayName: 'init'
+  #               inputs:
+  #                 provider: 'azurerm'
+  #                 command: 'init'
+  #                 commandOptions: '-input=false'
+  #                 workingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
+  #                 backendServiceArm:  '$(ServiceConnectionNameTerraform)'
+  #                 backendAzureRmResourceGroupName: '$(BackendStorageResourceGroupName)'
+  #                 backendAzureRmStorageAccountName: '$(BackendStorageAccountName)'
+  #                 backendAzureRmContainerName: '$(BackendStorageContainerName)'
+  #                 backendAzureRmKey: '$(BackendStorageKey)'
+
+  #             - task: TerraformTaskV1@0
+  #               displayName: 'apply'
+  #               inputs:
+  #                 provider: 'azurerm'
+  #                 command: 'apply'
+  #                 commandOptions: '-input=false -auto-approve -lock=true'
+  #                 workingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
+  #                 environmentServiceNameAzureRM: '$(azureSubscription)'
+
+  # ###################################################
+  # # Build dependencies and app
+  # ###################################################
+  # - stage: stage_acc_build_app_btf
+  #   dependsOn: [stage_acc_apply_btf]
+  #   condition: succeeded('stage_acc_apply_btf')
+  #   jobs:
+  #   - job: Build
+  #     steps:
+  #     - task: UsePythonVersion@0
+  #       inputs:
+  #         versionSpec: $(pythonVersion)
+  #       displayName: Use Python $(pythonVersion)
+
+  #     - script: |
+  #         python -m pip install --upgrade pip
+  #         pip install wheel 
+  #         pip install setup   
+  #         pip install -r requirements.txt
+  #       workingDirectory: $(Build.SourcesDirectory)
+  #       displayName: Install Python Prerequisites
+
+  #     - task: ArchiveFiles@2
+  #       displayName: Archive files
+  #       inputs:
+  #         rootFolderOrFile: $(System.DefaultWorkingDirectory)
+  #         includeRootFolder: false
+  #         archiveType: zip
+  #         archiveFile: $(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip
+  #         replaceExistingArchive: true
+
+  #     - task: CopyFiles@2
+  #       displayName: 'Copy Terraform files to artifacts'
+  #       inputs:
+  #         SourceFolder: terraform
+  #         TargetFolder: '$(build.artifactstagingdirectory)/Terraform'
+  #         contents: |
+  #           '**'
+  #           '!(node_modules|.git)/**'
+
+  #     - task: PublishBuildArtifacts@1
+  #       inputs:
+  #         PathtoPublish: $(Build.ArtifactStagingDirectory)
+  #         ArtifactName: artifact01
+  #         publishLocation: Container
+
+  # ###################################################
+  # # Build dependencies and app
+  # ###################################################
+  # - stage: stage_acc_test_app_btf
+  #   dependsOn: [stage_acc_build_app_btf]
+  #   condition: succeeded('stage_acc_build_app_btf')
+  #   displayName: Test with pytest and collect coverage metrics
+  #   jobs:
+  #   - job: TestJob01
+  #     steps:
+  #     - task: UsePythonVersion@0
+  #       inputs:
+  #         versionSpec: $(pythonVersion)
+  #       displayName: Use Python $(pythonVersion)
+
+  #     - script: |
+  #         python -m pip install --upgrade pip
+  #         pip install wheel 
+  #         pip install setup   
+  #         pip install pytest pytest-azurepipelines pytest-cov 
+  #         pip install unittest-xml-reporting
+  #         pip install -r requirements.txt
+  #       workingDirectory: $(Build.SourcesDirectory)
+  #       displayName: Install Python Prerequisites
+
+  #     - script: |
+  #         pytest test_db.py --doctest-modules --junitxml=junit/test-results.xml --cov=. --cov-report=xml --cov-report=html
+  #       displayName: Run test 010
+  #       continueOnError: true     
+
+  #     - task: PublishCodeCoverageResults@1
+  #       displayName: Publish Cobertura Coverage Report
+  #       condition: succeededOrFailed()
+  #       inputs:
+  #         codeCoverageTool: Cobertura
+  #         summaryFileLocation: $(Build.SourcesDirectory)/**/coverage.xml
+  #         reportDirectory: $(Build.SourcesDirectory)/**/htmlcov
+
+  #   ###################################################
+  # # Destroy tffiles with Terraform
+  # ###################################################
+  # - stage: stage_acc_Destroy_btf
+  #   dependsOn: [stage_acc_test_app_btf]
+  #   condition: succeeded('stage_acc_test_app_btf')
+  #   jobs:
+  #     - job: Destroy    
+  #       steps:
+  #             - task: AzurePowerShell@3
+  #               displayName: 'Azure PowerShell script to get the storage key'
+  #               inputs:
+  #                 azureSubscription: '$(azureSubscription)'
+  #                 azurePowerShellVersion: LatestVersion
+  #                 ScriptType: InlineScript
+  #                 Inline: |
+  #                   $key=(Get-AzureRmStorageAccountKey -ResourceGroupName $(BackendStorageResourceGroupName) -AccountName $(BackendStorageAccountName)).Value[0]
+  #                   Write-Host "##vso[task.setvariable variable=BackendStorageKey]$key"
+
+  #             - task: replacetokens@3
+  #               displayName: 'Replace tokens in terraform file'
+  #               inputs:
+  #                 rootDirectory: '$(System.DefaultWorkingDirectory)/terraform'
+  #                 targetFiles: '**/*.tf'
+  #                 escapeType: none
+  #                 tokenPrefix: '__'
+  #                 tokenSuffix: '__'
+
+  #             - task: TerraformInstaller@0
+  #               displayName: 'install'
+  #               inputs:
+  #                 terraformVersion: '0.13.3'
+
+  #             - task: TerraformTaskV1@0
+  #               displayName: 'init'
+  #               inputs:
+  #                 provider: 'azurerm'
+  #                 command: 'init'
+  #                 commandOptions: '-input=false'
+  #                 workingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
+  #                 backendServiceArm:  '$(ServiceConnectionNameTerraform)'
+  #                 backendAzureRmResourceGroupName: '$(BackendStorageResourceGroupName)'
+  #                 backendAzureRmStorageAccountName: '$(BackendStorageAccountName)'
+  #                 backendAzureRmContainerName: '$(BackendStorageContainerName)'
+  #                 backendAzureRmKey: '$(BackendStorageKey)'
+
+  #             - task: TerraformTaskV1@0
+  #               displayName: 'destroy'
+  #               inputs:
+  #                 provider: 'azurerm'
+  #                 command: 'destroy'
+  #                 commandOptions: '-input=false -auto-approve -lock=true'
+  #                 workingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
+  #                 environmentServiceNameAzureRM: '$(azureSubscription)'
